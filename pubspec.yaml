@@ -16,7 +16,7 @@ dependencies:
   flutter_svg: ^2.0.9
   excel: ^2.1.0
   path_provider: ^2.1.1
-  share_plus: ^7.2.1
+  share_plus: ^11.0.0
   shared_preferences: ^2.2.2
 
 dev_dependencies:
@@ -26,9 +26,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-
-# Platform support
-flutter_platforms:
-  - android
-  - ios
-  - windows

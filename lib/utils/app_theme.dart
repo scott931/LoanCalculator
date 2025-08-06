@@ -1,21 +1,20 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  // Color Palette matching the image design
-  static const Color primaryColor = Color(0xFF1E40AF); // Dark blue
-  static const Color primaryLight = Color(0xFF3B82F6); // Light blue
-  static const Color primaryDark = Color(0xFF1E3A8A); // Darker blue
+  // Modern Color Palette
+  static const Color primaryColor = Color(0xFF6366F1); // Indigo
+  static const Color primaryLight = Color(0xFF818CF8);
+  static const Color primaryDark = Color(0xFF4F46E5);
 
-  static const Color secondaryColor = Color(0xFF60A5FA); // Light blue
-  static const Color secondaryLight = Color(0xFF93C5FD);
-  static const Color secondaryDark = Color(0xFF2563EB);
+  static const Color secondaryColor = Color(0xFF10B981); // Emerald
+  static const Color secondaryLight = Color(0xFF34D399);
+  static const Color secondaryDark = Color(0xFF059669);
 
   static const Color accentColor = Color(0xFFF59E0B); // Amber
   static const Color accentLight = Color(0xFFFBBF24);
   static const Color accentDark = Color(0xFFD97706);
 
-  // Background color matching the image (light lavender/periwinkle)
-  static const Color backgroundColor = Color(0xFFF8FAFF);
+  static const Color backgroundColor = Color(0xFFF8FAFC);
   static const Color surfaceColor = Color(0xFFFFFFFF);
   static const Color cardColor = Color(0xFFFFFFFF);
 
@@ -32,7 +31,7 @@ class AppTheme {
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
-      fontFamily: 'Poppins',
+      fontFamily: 'Poppins, Roboto, sans-serif',
 
       // Color Scheme
       colorScheme: const ColorScheme.light(
@@ -57,8 +56,8 @@ class AppTheme {
         elevation: 0,
         centerTitle: true,
         titleTextStyle: TextStyle(
-          fontFamily: 'Poppins',
-          fontSize: 18,
+          fontFamily: 'Poppins, Roboto, sans-serif',
+          fontSize: 20,
           fontWeight: FontWeight.w600,
           color: textPrimary,
         ),
@@ -71,10 +70,13 @@ class AppTheme {
       // Card Theme
       cardTheme: CardTheme(
         color: cardColor,
-        elevation: 2,
-        shadowColor: Colors.black.withOpacity(0.1),
+        elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: Colors.grey.shade200,
+            width: 1,
+          ),
         ),
         margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
       ),
@@ -90,7 +92,7 @@ class AppTheme {
             borderRadius: BorderRadius.circular(12),
           ),
           textStyle: const TextStyle(
-            fontFamily: 'Poppins',
+            fontFamily: 'Poppins, Roboto, sans-serif',
             fontSize: 16,
             fontWeight: FontWeight.w600,
           ),
@@ -102,7 +104,7 @@ class AppTheme {
         style: TextButton.styleFrom(
           foregroundColor: primaryColor,
           textStyle: const TextStyle(
-            fontFamily: 'Poppins',
+            fontFamily: 'Poppins, Roboto, sans-serif',
             fontSize: 14,
             fontWeight: FontWeight.w500,
           ),
@@ -112,7 +114,7 @@ class AppTheme {
       // Input Decoration Theme
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white,
+        fillColor: Colors.grey.shade50,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: Colors.grey.shade300),
@@ -132,12 +134,12 @@ class AppTheme {
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         labelStyle: const TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           color: textSecondary,
           fontSize: 14,
         ),
         hintStyle: const TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           color: textTertiary,
           fontSize: 14,
         ),
@@ -146,91 +148,91 @@ class AppTheme {
       // Text Theme
       textTheme: const TextTheme(
         displayLarge: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 32,
           fontWeight: FontWeight.w700,
           color: textPrimary,
         ),
         displayMedium: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 28,
           fontWeight: FontWeight.w600,
           color: textPrimary,
         ),
         displaySmall: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 24,
           fontWeight: FontWeight.w600,
           color: textPrimary,
         ),
         headlineLarge: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 22,
           fontWeight: FontWeight.w600,
           color: textPrimary,
         ),
         headlineMedium: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 20,
           fontWeight: FontWeight.w600,
           color: textPrimary,
         ),
         headlineSmall: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 18,
           fontWeight: FontWeight.w600,
           color: textPrimary,
         ),
         titleLarge: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 16,
           fontWeight: FontWeight.w600,
           color: textPrimary,
         ),
         titleMedium: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 14,
           fontWeight: FontWeight.w500,
           color: textPrimary,
         ),
         titleSmall: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 12,
           fontWeight: FontWeight.w500,
           color: textSecondary,
         ),
         bodyLarge: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 16,
           fontWeight: FontWeight.w400,
           color: textPrimary,
         ),
         bodyMedium: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 14,
           fontWeight: FontWeight.w400,
           color: textPrimary,
         ),
         bodySmall: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 12,
           fontWeight: FontWeight.w400,
           color: textSecondary,
         ),
         labelLarge: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 14,
           fontWeight: FontWeight.w500,
           color: textPrimary,
         ),
         labelMedium: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 12,
           fontWeight: FontWeight.w500,
           color: textSecondary,
         ),
         labelSmall: TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 10,
           fontWeight: FontWeight.w500,
           color: textTertiary,
@@ -254,7 +256,7 @@ class AppTheme {
       snackBarTheme: SnackBarThemeData(
         backgroundColor: textPrimary,
         contentTextStyle: const TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           color: Colors.white,
         ),
         shape: RoundedRectangleBorder(
@@ -275,13 +277,13 @@ class AppTheme {
       // Data Table Theme
       dataTableTheme: DataTableThemeData(
         headingTextStyle: const TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 14,
           fontWeight: FontWeight.w600,
           color: textPrimary,
         ),
         dataTextStyle: const TextStyle(
-          fontFamily: 'Poppins',
+          fontFamily: 'Poppins, Roboto, sans-serif',
           fontSize: 14,
           fontWeight: FontWeight.w400,
           color: textPrimary,

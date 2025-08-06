@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:html' as html;
 import 'package:excel/excel.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -176,39 +175,23 @@ class ExcelExport {
 
       // Note: Column width setting is not available in this version of the excel package
 
-      // Platform-specific file handling
-      if (kIsWeb) {
-        // Web platform - use blob download
-        final bytes = excel.encode()!;
-        final blob = html.Blob([bytes]);
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        html.AnchorElement(href: url)
-          ..setAttribute('download',
-              'loan_schedule_${DateTime.now().millisecondsSinceEpoch}.xlsx')
-          ..click();
-        html.Url.revokeObjectUrl(url);
-      } else {
-        // Mobile/Desktop platforms - use path_provider and share
-        try {
-          final directory = await getApplicationDocumentsDirectory();
-          final fileName =
-              'loan_schedule_${DateTime.now().millisecondsSinceEpoch}.xlsx';
-          final file = File('${directory.path}/$fileName');
+      // Desktop platform - use path_provider and share
+      try {
+        final directory = await getApplicationDocumentsDirectory();
+        final fileName =
+            'loan_schedule_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+        final file = File('${directory.path}/$fileName');
 
-          await file.writeAsBytes(excel.encode()!);
+        await file.writeAsBytes(excel.encode()!);
 
-          // Share the file
-          await Share.shareXFiles(
-            [XFile(file.path)],
-            subject: 'Loan Schedule',
-            text:
-                'Loan calculation schedule exported from Loan Calculator app.',
-          );
-        } catch (e) {
-          // Fallback for platforms where path_provider doesn't work
-          throw Exception(
-              'Export not supported on this platform. Please use a mobile device or desktop.');
-        }
+        // Share the file
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          subject: 'Loan Schedule',
+          text: 'Loan calculation schedule exported from Loan Calculator app.',
+        );
+      } catch (e) {
+        throw Exception('Failed to export Excel file: $e');
       }
     } catch (e) {
       throw Exception('Failed to export Excel file: $e');
@@ -270,35 +253,22 @@ class ExcelExport {
             '${payment.month},${calculation.formatDate(payment.dueDate)},${calculation.formatCurrency(payment.payment)},${calculation.formatCurrency(payment.principal)},${calculation.formatCurrency(payment.interest)},${calculation.formatCurrency(payment.remainingBalance)},${calculation.formatCurrency(payment.outstandingBalance)}');
       }
 
-      if (kIsWeb) {
-        // Web platform - use blob download for CSV
-        final bytes = csvData.toString().codeUnits;
-        final blob = html.Blob([bytes]);
-        final url = html.Url.createObjectUrlFromBlob(blob);
-        html.AnchorElement(href: url)
-          ..setAttribute('download',
-              'loan_schedule_${DateTime.now().millisecondsSinceEpoch}.csv')
-          ..click();
-        html.Url.revokeObjectUrl(url);
-      } else {
-        // Mobile/Desktop platforms
-        try {
-          final directory = await getApplicationDocumentsDirectory();
-          final fileName =
-              'loan_schedule_${DateTime.now().millisecondsSinceEpoch}.csv';
-          final file = File('${directory.path}/$fileName');
+      // Desktop platform - use path_provider and share
+      try {
+        final directory = await getApplicationDocumentsDirectory();
+        final fileName =
+            'loan_schedule_${DateTime.now().millisecondsSinceEpoch}.csv';
+        final file = File('${directory.path}/$fileName');
 
-          await file.writeAsString(csvData.toString());
+        await file.writeAsString(csvData.toString());
 
-          await Share.shareXFiles(
-            [XFile(file.path)],
-            subject: 'Loan Schedule (CSV)',
-            text:
-                'Loan calculation schedule exported from Loan Calculator app.',
-          );
-        } catch (e) {
-          throw Exception('CSV export not supported on this platform.');
-        }
+        await Share.shareXFiles(
+          [XFile(file.path)],
+          subject: 'Loan Schedule (CSV)',
+          text: 'Loan calculation schedule exported from Loan Calculator app.',
+        );
+      } catch (e) {
+        throw Exception('Failed to export CSV file: $e');
       }
     } catch (e) {
       throw Exception('Failed to export CSV file: $e');

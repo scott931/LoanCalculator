@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
 import '../models/loan_calculation.dart';
 import '../utils/loan_formulas.dart';
@@ -15,8 +14,6 @@ import '../utils/app_theme.dart';
 import '../models/saved_calculation.dart';
 import '../services/saved_calculations_service.dart';
 
-enum LoanType { home, personal, car }
-
 class CalculatorScreen extends StatefulWidget {
   final SavedCalculation? savedCalculation;
 
@@ -28,9 +25,8 @@ class CalculatorScreen extends StatefulWidget {
 
 class _CalculatorScreenState extends State<CalculatorScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _loanAmountController = TextEditingController(text: '5000000');
-  final _loanTermController = TextEditingController(text: '10');
-  final _interestRateController = TextEditingController(text: '9.5');
+  final _loanAmountController = TextEditingController();
+  final _loanTermController = TextEditingController();
   final _monthlyPaymentController = TextEditingController();
   final _earlyPaymentController = TextEditingController();
 
@@ -38,8 +34,6 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   DateTime _selectedSettlementDate = DateTime.now();
   LoanCalculation? _calculation;
   bool _isCalculating = false;
-  LoanType _selectedLoanType = LoanType.home;
-  bool _showResults = false;
 
   @override
   void initState() {
@@ -70,13 +64,12 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   void dispose() {
     _loanAmountController.dispose();
     _loanTermController.dispose();
-    _interestRateController.dispose();
     _monthlyPaymentController.dispose();
     _earlyPaymentController.dispose();
     super.dispose();
   }
 
-  void _calculateEMI() async {
+  void _calculateLoan() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
@@ -86,41 +79,18 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     try {
       final principal = double.parse(_loanAmountController.text);
       final loanTerm = int.parse(_loanTermController.text);
-      final interestRate = double.parse(_interestRateController.text);
+      final monthlyPayment = double.parse(_monthlyPaymentController.text);
 
-      // Calculate monthly interest rate
-      final monthlyInterestRate = interestRate / 100 / 12;
-      final numberOfPayments = loanTerm * 12;
-
-      // EMI formula: P * r * (1 + r)^n / ((1 + r)^n - 1)
-      final emi = principal *
-          monthlyInterestRate *
-          pow(1 + monthlyInterestRate, numberOfPayments) /
-          (pow(1 + monthlyInterestRate, numberOfPayments) - 1);
-
-      final totalPayment = emi * numberOfPayments;
-      final totalInterest = totalPayment - principal;
-
-      final calculation = LoanCalculation(
+      final calculation = await LoanFormulas.calculateLoan(
         principal: principal,
-        annualInterestRate: interestRate,
-        monthlyInterestRate: monthlyInterestRate,
         loanTerm: loanTerm,
-        monthlyPayment: emi,
-        totalPayment: totalPayment,
-        totalInterest: totalInterest,
-        laceFee: 0,
-        insuranceFee: 0,
-        disbursementFee: 0,
-        totalFees: 0,
-        paymentSchedule: [],
+        monthlyPayment: monthlyPayment,
         loanDate: _selectedLoanDate,
       );
 
       setState(() {
         _calculation = calculation;
         _isCalculating = false;
-        _showResults = true;
       });
     } catch (e) {
       setState(() {
@@ -128,7 +98,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       });
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error calculating EMI: $e'),
+          content: Text('Error calculating loan: $e'),
           backgroundColor: Colors.red,
         ),
       );
@@ -139,7 +109,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     if (_calculation == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please calculate EMI first'),
+          content: Text('Please calculate a loan first'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -161,7 +131,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           inputData: {
             'loanAmount': double.parse(_loanAmountController.text),
             'loanTerm': int.parse(_loanTermController.text),
-            'interestRate': double.parse(_interestRateController.text),
+            'monthlyPayment': double.parse(_monthlyPaymentController.text),
             'loanDate': _selectedLoanDate.millisecondsSinceEpoch,
             'settlementDate': _selectedSettlementDate.millisecondsSinceEpoch,
           },
@@ -189,9 +159,14 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     if (_calculation == null) return;
 
     try {
+      int? paymentsMade;
+      if (_earlyPaymentController.text.isNotEmpty) {
+        paymentsMade = int.tryParse(_earlyPaymentController.text);
+      }
+
       await ExcelExport.exportToExcel(
         _calculation!,
-        paymentsMade: null,
+        paymentsMade: paymentsMade,
         settlementDate: _selectedSettlementDate,
       );
 
@@ -215,9 +190,14 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     if (_calculation == null) return;
 
     try {
+      int? paymentsMade;
+      if (_earlyPaymentController.text.isNotEmpty) {
+        paymentsMade = int.tryParse(_earlyPaymentController.text);
+      }
+
       await ExcelExport.exportToCSV(
         _calculation!,
-        paymentsMade: null,
+        paymentsMade: paymentsMade,
         settlementDate: _selectedSettlementDate,
       );
 
@@ -237,229 +217,1063 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     }
   }
 
+  double? _calculateEarlySettlement() {
+    if (_calculation == null || _earlyPaymentController.text.isEmpty)
+      return null;
+
+    try {
+      final paymentsMade = int.parse(_earlyPaymentController.text);
+      if (paymentsMade < 0 ||
+          paymentsMade > _calculation!.paymentSchedule.length) {
+        return null;
+      }
+
+      return _calculation!
+          .calculateSettlementAmount(_selectedSettlementDate, paymentsMade);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  double? _calculateTotalAmountPaid() {
+    if (_calculation == null || _earlyPaymentController.text.isEmpty)
+      return null;
+
+    try {
+      final paymentsMade = int.parse(_earlyPaymentController.text);
+      if (paymentsMade < 0 ||
+          paymentsMade > _calculation!.paymentSchedule.length) {
+        return null;
+      }
+
+      // Calculate total amount paid so far
+      double totalPaid = paymentsMade * _calculation!.monthlyPayment;
+
+      // Add the early settlement amount
+      double settlementAmount = _calculateEarlySettlement() ?? 0;
+
+      return totalPaid + settlementAmount;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  double? _calculateAmountSaved() {
+    if (_calculation == null || _earlyPaymentController.text.isEmpty)
+      return null;
+
+    try {
+      final paymentsMade = int.parse(_earlyPaymentController.text);
+      if (paymentsMade < 0 ||
+          paymentsMade > _calculation!.paymentSchedule.length) {
+        return null;
+      }
+
+      // Calculate what would be paid if continuing the loan
+      double remainingPayments =
+          (_calculation!.paymentSchedule.length - paymentsMade).toDouble();
+      double totalIfContinued =
+          remainingPayments * _calculation!.monthlyPayment;
+
+      // Calculate what will be paid with early settlement
+      double settlementAmount = _calculateEarlySettlement() ?? 0;
+
+      // Amount saved = what would be paid - what will be paid
+      return totalIfContinued - settlementAmount;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  double? _calculateWholeAmountInMonth() {
+    if (_calculation == null || _earlyPaymentController.text.isEmpty)
+      return null;
+
+    try {
+      final paymentsMade = int.parse(_earlyPaymentController.text);
+      if (paymentsMade < 0 ||
+          paymentsMade > _calculation!.paymentSchedule.length) {
+        return null;
+      }
+
+      // Calculate the total amount needed to pay off the loan completely
+      double totalPaidSoFar = paymentsMade * _calculation!.monthlyPayment;
+      double totalLoanAmount = _calculation!.totalPayment;
+
+      // Amount needed to pay off completely
+      return totalLoanAmount - totalPaidSoFar;
+    } catch (e) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final earlySettlementAmount = _calculateEarlySettlement();
+    final totalAmountPaid = _calculateTotalAmountPaid();
+    final amountSaved = _calculateAmountSaved();
+    final wholeAmountInMonth = _calculateWholeAmountInMonth();
+
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
       appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
         title: const Text(
-          'Bank of Los Santos',
-          style: TextStyle(fontWeight: FontWeight.w600),
+          'Loan Calculator',
+          style: TextStyle(fontWeight: FontWeight.bold),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.menu),
+            icon: const Icon(Icons.save),
+            tooltip: 'Save Calculation',
+            onPressed: _saveCalculation,
+          ),
+          IconButton(
+            icon: const Icon(Icons.folder_open),
+            tooltip: 'Saved Calculations',
             onPressed: () {
-              // Show menu options
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SavedCalculationsScreen(),
+                ),
+              );
             },
           ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const SettingsScreen(),
+                ),
+              );
+            },
+          ),
+          if (_calculation != null)
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.file_download),
+              tooltip: 'Export',
+              onSelected: (value) {
+                if (value == 'excel') {
+                  _exportToExcel();
+                } else if (value == 'csv') {
+                  _exportToCSV();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'excel',
+                  child: Row(
+                    children: [
+                      Icon(Icons.table_chart, color: Colors.blue),
+                      SizedBox(width: 8),
+                      Text('Export to Excel'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'csv',
+                  child: Row(
+                    children: [
+                      Icon(Icons.description, color: Colors.green),
+                      SizedBox(width: 8),
+                      Text('Export to CSV'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: const EdgeInsets.all(16),
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Header Section
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Loan',
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.textPrimary,
+              // Input Section
+              Container(
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.1),
+                      spreadRadius: 1,
+                      blurRadius: 4,
+                      offset: const Offset(0, 2),
                     ),
-                  ),
-                  Text(
-                    'EMI Calculator',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.textPrimary,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 30),
-
-              // Loan Type Section
-              Text(
-                'Loan Type',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500,
-                  color: AppTheme.textPrimary,
+                  ],
                 ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: _buildLoanTypeButton(
-                      type: LoanType.home,
-                      icon: Icons.home,
-                      label: 'Home',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Loan Details',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[800],
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildLoanTypeButton(
-                      type: LoanType.personal,
-                      icon: Icons.person,
-                      label: 'Personal',
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildLoanTypeButton(
-                      type: LoanType.car,
-                      icon: Icons.directions_car,
-                      label: 'Car',
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 30),
+                    const SizedBox(height: 20),
 
-              // Input Fields Section
-              _buildInputField(
-                label: '${_getLoanTypeLabel()} Loan Amount',
-                controller: _loanAmountController,
-                prefix: '₹',
-                validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return 'Please enter loan amount';
-                  }
-                  if (double.tryParse(value) == null) {
-                    return 'Please enter a valid number';
-                  }
-                  if (double.parse(value) <= 0) {
-                    return 'Loan amount must be greater than 0';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 20),
-
-              Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: _buildInputField(
-                      label: 'Loan Tenure',
-                      controller: _loanTermController,
+                    // Loan Amount
+                    InputField(
+                      controller: _loanAmountController,
+                      label: 'Loan Amount Applied',
+                      hint: 'Enter loan amount',
+                      prefix: '\$',
+                      keyboardType: TextInputType.number,
                       validator: (value) {
                         if (value == null || value.isEmpty) {
-                          return 'Please enter loan tenure';
-                        }
-                        if (int.tryParse(value) == null) {
-                          return 'Please enter a valid number';
-                        }
-                        if (int.parse(value) <= 0) {
-                          return 'Loan tenure must be greater than 0';
-                        }
-                        return null;
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildTenureTypeButtons(),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 20),
-
-              Row(
-                children: [
-                  Expanded(
-                    flex: 2,
-                    child: _buildInputField(
-                      label: 'Interest Rate',
-                      controller: _interestRateController,
-                      validator: (value) {
-                        if (value == null || value.isEmpty) {
-                          return 'Please enter interest rate';
+                          return 'Please enter loan amount';
                         }
                         if (double.tryParse(value) == null) {
                           return 'Please enter a valid number';
                         }
                         if (double.parse(value) <= 0) {
-                          return 'Interest rate must be greater than 0';
+                          return 'Loan amount must be greater than 0';
                         }
                         return null;
                       },
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Container(
-                      height: 56,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.grey.shade300),
-                      ),
-                      child: Center(
-                        child: Text(
-                          '%',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                            color: AppTheme.textSecondary,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 40),
+                    const SizedBox(height: 16),
 
-              // Calculate EMI Button
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _isCalculating ? null : _calculateEMI,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primaryColor,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                    // Loan Term
+                    InputField(
+                      controller: _loanTermController,
+                      label: 'Loan Term (Years)',
+                      hint: 'Enter loan term in years',
+                      keyboardType: TextInputType.number,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter loan term';
+                        }
+                        if (int.tryParse(value) == null) {
+                          return 'Please enter a valid number';
+                        }
+                        if (int.parse(value) <= 0) {
+                          return 'Loan term must be greater than 0';
+                        }
+                        return null;
+                      },
                     ),
-                  ),
-                  child: _isCalculating
-                      ? const SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor:
-                                AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        )
-                      : const Text(
-                          'Calculate EMI',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                    const SizedBox(height: 16),
+
+                    // Loan Date
+                    DatePickerField(
+                      label: 'Loan Date',
+                      initialDate: _selectedLoanDate,
+                      onDateSelected: (date) {
+                        setState(() {
+                          _selectedLoanDate = date;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 16),
+
+                    // Monthly Payment
+                    InputField(
+                      controller: _monthlyPaymentController,
+                      label: 'Installment Required',
+                      hint: 'Enter monthly payment amount',
+                      prefix: '\$',
+                      keyboardType: TextInputType.number,
+                      validator: (value) {
+                        if (value == null || value.isEmpty) {
+                          return 'Please enter monthly payment';
+                        }
+                        if (double.tryParse(value) == null) {
+                          return 'Please enter a valid number';
+                        }
+                        if (double.parse(value) <= 0) {
+                          return 'Monthly payment must be greater than 0';
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 24),
+
+                    // Calculate Button
+                    SizedBox(
+                      width: double.infinity,
+                      child: CalculateButton(
+                        onPressed: _isCalculating ? () {} : _calculateLoan,
+                        isLoading: _isCalculating,
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
-              if (_showResults && _calculation != null) ...[
-                const SizedBox(height: 40),
-                _buildResultsSection(),
+              if (_calculation != null) ...[
+                const SizedBox(height: 20),
+
+                // Fee Breakdown
+                FeeBreakdownCard(
+                  laceFee: _calculation!.laceFee,
+                  insuranceFee: _calculation!.insuranceFee,
+                  disbursementFee: _calculation!.disbursementFee,
+                  totalFees: _calculation!.totalFees,
+                ),
+
+                const SizedBox(height: 20),
+
+                // Loan Summary
+                ResultCard(
+                  title: 'Loan Summary',
+                  items: [
+                    ResultItem(
+                      label: 'Principal Amount',
+                      value:
+                          _calculation!.formatCurrency(_calculation!.principal),
+                    ),
+                    ResultItem(
+                      label: 'Annual Interest Rate',
+                      value: '${_calculation!.annualInterestRate}%',
+                    ),
+                    ResultItem(
+                      label: 'Monthly Interest Rate',
+                      value: '${_calculation!.monthlyInterestRate * 100}%',
+                    ),
+                    ResultItem(
+                      label: 'Monthly Payment',
+                      value: _calculation!
+                          .formatCurrency(_calculation!.monthlyPayment),
+                    ),
+                    ResultItem(
+                      label: 'Loan Term',
+                      value: '${_calculation!.loanTerm} years',
+                    ),
+                    ResultItem(
+                      label: 'Total Payment',
+                      value: _calculation!
+                          .formatCurrency(_calculation!.totalPayment),
+                    ),
+                    ResultItem(
+                      label: 'Total Interest',
+                      value: _calculation!
+                          .formatCurrency(_calculation!.totalInterest),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                // Total Amount Paid Summary
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: AppTheme.primaryColor.withOpacity(0.3),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.account_balance_wallet,
+                            color: AppTheme.primaryColor,
+                            size: 24,
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Total Amount to Pay',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.primaryColor,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Principal + Interest + Fees',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  _calculation!.formatCurrency(
+                                      _calculation!.totalPayment +
+                                          _calculation!.totalFees),
+                                  style: TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.primaryColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryColor,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              'Complete Cost',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Breakdown:',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Principal: ${_calculation!.formatCurrency(_calculation!.principal)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                                Text(
+                                  'Interest: ${_calculation!.formatCurrency(_calculation!.totalInterest)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                                Text(
+                                  'Fees: ${_calculation!.formatCurrency(_calculation!.totalFees)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.textSecondary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Early Payment Calculator
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.1),
+                        spreadRadius: 1,
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.payment,
+                            color: Colors.green[600],
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Early Payment Calculator',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey[800],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Calculate the exact amount needed to settle your loan early after making a certain number of payments.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Payments Made Input
+                      InputField(
+                        controller: _earlyPaymentController,
+                        label: 'Number of Payments Made',
+                        hint: 'Enter number of payments made',
+                        keyboardType: TextInputType.number,
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return null; // Optional field
+                          }
+                          if (int.tryParse(value) == null) {
+                            return 'Please enter a valid number';
+                          }
+                          final payments = int.parse(value);
+                          if (payments < 0) {
+                            return 'Payments must be 0 or greater';
+                          }
+                          if (payments > _calculation!.paymentSchedule.length) {
+                            return 'Cannot exceed total loan term';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Settlement Date
+                      DatePickerField(
+                        label: 'Settlement Date',
+                        initialDate: _selectedSettlementDate,
+                        onDateSelected: (date) {
+                          setState(() {
+                            _selectedSettlementDate = date;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 20),
+
+                      // Early Settlement Results
+                      if (earlySettlementAmount != null) ...[
+                        // Early Settlement Amount
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppTheme.successLight,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: AppTheme.successColor.withOpacity(0.3)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Icon(
+                                    Icons.check_circle,
+                                    color: AppTheme.successColor,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    'Early Settlement Amount',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppTheme.successColor,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                Formatters.formatCurrency(
+                                    earlySettlementAmount),
+                                style: TextStyle(
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                  color: AppTheme.successColor,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                'Based on ${_earlyPaymentController.text} payments made',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.successColor.withOpacity(0.8),
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Total Amount Paid
+                        if (totalAmountPaid != null) ...[
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppTheme.infoLight,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color: AppTheme.infoColor.withOpacity(0.3)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.account_balance_wallet,
+                                      color: AppTheme.infoColor,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Total Amount Paid',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppTheme.infoColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  Formatters.formatCurrency(totalAmountPaid),
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.infoColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Including ${_earlyPaymentController.text} payments + settlement',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.infoColor.withOpacity(0.8),
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        // Amount Saved
+                        if (amountSaved != null && amountSaved > 0) ...[
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppTheme.secondaryColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color:
+                                      AppTheme.secondaryColor.withOpacity(0.3)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.savings,
+                                      color: AppTheme.secondaryColor,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Amount Saved',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppTheme.secondaryColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  Formatters.formatCurrency(amountSaved),
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.secondaryColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Compared to continuing the loan',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.secondaryColor
+                                        .withOpacity(0.8),
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        // Whole Amount in Month
+                        if (wholeAmountInMonth != null) ...[
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppTheme.accentColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color: AppTheme.accentColor.withOpacity(0.3)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      Icons.payment,
+                                      color: AppTheme.accentColor,
+                                      size: 20,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      'Complete Payoff Amount',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppTheme.accentColor,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  Formatters.formatCurrency(wholeAmountInMonth),
+                                  style: TextStyle(
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                    color: AppTheme.accentColor,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'To pay off the entire loan in month ${_earlyPaymentController.text}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color:
+                                        AppTheme.accentColor.withOpacity(0.8),
+                                    fontStyle: FontStyle.italic,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ] else if (_earlyPaymentController.text.isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppTheme.warningLight,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: AppTheme.warningColor.withOpacity(0.3)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.warning,
+                                color: AppTheme.warningColor,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Please enter a valid number of payments (0-${_calculation!.paymentSchedule.length})',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: AppTheme.warningColor,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Payment Schedule Preview
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.1),
+                        spreadRadius: 1,
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.schedule,
+                            color: Colors.blue[600],
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Payment Schedule (Full Term)',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey[800],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+
+                      // Total Amount Paid Summary
+                      if (_earlyPaymentController.text.isNotEmpty) ...[
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppTheme.infoColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: AppTheme.infoColor.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.account_balance_wallet,
+                                color: AppTheme.infoColor,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Total Amount Paid So Far',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppTheme.infoColor,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      Formatters.formatCurrency(
+                                        int.parse(
+                                                _earlyPaymentController.text) *
+                                            _calculation!.monthlyPayment,
+                                      ),
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
+                                        color: AppTheme.infoColor,
+                                      ),
+                                    ),
+                                    Text(
+                                      '${_earlyPaymentController.text} payments × ${Formatters.formatCurrency(_calculation!.monthlyPayment)}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color:
+                                            AppTheme.infoColor.withOpacity(0.8),
+                                        fontStyle: FontStyle.italic,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.infoColor,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${_earlyPaymentController.text} months',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+                      ],
+
+                      Text(
+                        'Total payments: ${_calculation!.paymentSchedule.length} months',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: DataTable(
+                          columns: const [
+                            DataColumn(label: Text('Month')),
+                            DataColumn(label: Text('Due Date')),
+                            DataColumn(label: Text('Payment')),
+                            DataColumn(label: Text('Principal')),
+                            DataColumn(label: Text('Interest')),
+                            DataColumn(label: Text('Outstanding')),
+                          ],
+                          rows: _calculation!.paymentSchedule
+                              .map((payment) => DataRow(
+                                    cells: [
+                                      DataCell(Text('${payment.month}')),
+                                      DataCell(Text(_calculation!
+                                          .formatDate(payment.dueDate))),
+                                      DataCell(Text(_calculation!
+                                          .formatCurrency(payment.payment))),
+                                      DataCell(Text(_calculation!
+                                          .formatCurrency(payment.principal))),
+                                      DataCell(Text(_calculation!
+                                          .formatCurrency(payment.interest))),
+                                      DataCell(Text(_calculation!
+                                          .formatCurrency(
+                                              payment.outstandingBalance))),
+                                    ],
+                                  ))
+                              .toList(),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 20),
+
+                // Settlement Calculator
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.grey.withOpacity(0.1),
+                        spreadRadius: 1,
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.calculate,
+                            color: Colors.blue[600],
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Settlement Calculator',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey[800],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Text(
+                        'Calculate the exact payoff amount on any date after making k monthly payments.',
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              'Outstanding Balance after k payments:',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.grey[700],
+                              ),
+                            ),
+                          ),
+                          Text(
+                            _calculation!.formatCurrency(
+                                _calculation!.calculateOutstandingBalance(6)),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.blue[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Example: After 6 monthly payments',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[500],
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ],
           ),
@@ -467,420 +1281,18 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       ),
     );
   }
-
-  Widget _buildLoanTypeButton({
-    required LoanType type,
-    required IconData icon,
-    required String label,
-  }) {
-    final isSelected = _selectedLoanType == type;
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          _selectedLoanType = type;
-        });
-      },
-      child: Container(
-        height: 80,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isSelected ? AppTheme.primaryColor : Colors.grey.shade300,
-            width: isSelected ? 2 : 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.05),
-              blurRadius: 4,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? AppTheme.primaryColor : Colors.grey.shade400,
-              size: 24,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color:
-                    isSelected ? AppTheme.primaryColor : Colors.grey.shade400,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInputField({
-    required String label,
-    required TextEditingController controller,
-    String? prefix,
-    String? Function(String?)? validator,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w500,
-            color: AppTheme.textPrimary,
-          ),
-        ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          validator: validator,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: Colors.grey.shade300),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: AppTheme.primaryColor, width: 2),
-            ),
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            prefixText: prefix,
-            prefixStyle: TextStyle(
-              color: AppTheme.textPrimary,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildTenureTypeButtons() {
-    return Column(
-      children: [
-        const SizedBox(height: 32), // Align with input field
-        Row(
-          children: [
-            Expanded(
-              child: Container(
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Center(
-                  child: Text(
-                    'Yr',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 4),
-            Expanded(
-              child: Container(
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.grey.shade300),
-                ),
-                child: Center(
-                  child: Text(
-                    'Mo',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.textSecondary,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildResultsSection() {
-    return Column(
-      children: [
-        // EMI Circle
-        Container(
-          width: 200,
-          height: 200,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.grey.shade300, width: 8),
-          ),
-          child: Stack(
-            children: [
-              // Progress circle
-              SizedBox(
-                width: 200,
-                height: 200,
-                child: CircularProgressIndicator(
-                  value: 0.75, // 75% progress
-                  strokeWidth: 8,
-                  backgroundColor: Colors.grey.shade300,
-                  valueColor: const AlwaysStoppedAnimation<Color>(
-                      AppTheme.primaryColor),
-                ),
-              ),
-              // Center content
-              Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'Your EMI is',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '₹${_formatNumber(_calculation!.monthlyPayment)}',
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.primaryColor,
-                      ),
-                    ),
-                    Text(
-                      'per Month',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 30),
-
-        // Summary Section
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              _buildSummaryRow(
-                label: 'Principal Amount',
-                value: '₹${_formatNumber(_calculation!.principal)}',
-                showDot: false,
-              ),
-              const SizedBox(height: 16),
-              _buildSummaryRow(
-                label: 'Total Interest',
-                value: '₹${_formatNumber(_calculation!.totalInterest)}',
-                showDot: true,
-                dotColor: AppTheme.secondaryColor,
-              ),
-              const SizedBox(height: 16),
-              _buildSummaryRow(
-                label: 'Total Payment',
-                value: '₹${_formatNumber(_calculation!.totalPayment)}',
-                showDot: true,
-                dotColor: AppTheme.primaryColor,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-
-        // Amortization Details
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.05),
-                blurRadius: 4,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Your Amortization Details',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Payments starting from ${_formatDate(_selectedLoanDate)}',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              _buildAmortizationYear('2023'),
-              _buildAmortizationYear('2024'),
-              _buildAmortizationYear('2025'),
-              _buildAmortizationYear('2026'),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSummaryRow({
-    required String label,
-    required String value,
-    required bool showDot,
-    Color? dotColor,
-  }) {
-    return Row(
-      children: [
-        if (showDot) ...[
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: dotColor,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              color: AppTheme.textPrimary,
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: AppTheme.textPrimary,
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAmortizationYear(String year) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Text(
-              year,
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: AppTheme.textPrimary,
-              ),
-            ),
-            const Spacer(),
-            Icon(
-              Icons.keyboard_arrow_down,
-              color: AppTheme.textSecondary,
-              size: 20,
-            ),
-          ],
-        ),
-        if (year != '2026') const Divider(height: 16),
-      ],
-    );
-  }
-
-  String _getLoanTypeLabel() {
-    switch (_selectedLoanType) {
-      case LoanType.home:
-        return 'Home';
-      case LoanType.personal:
-        return 'Personal';
-      case LoanType.car:
-        return 'Car';
-    }
-  }
-
-  String _formatNumber(double number) {
-    return number.toStringAsFixed(0).replaceAllMapped(
-          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-          (Match m) => '${m[1]},',
-        );
-  }
-
-  String _formatDate(DateTime date) {
-    const months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December'
-    ];
-    return '${months[date.month - 1]} ${date.year}';
-  }
 }
 
 class _SaveCalculationDialog extends StatefulWidget {
+  const _SaveCalculationDialog();
+
   @override
   State<_SaveCalculationDialog> createState() => _SaveCalculationDialogState();
 }
 
 class _SaveCalculationDialogState extends State<_SaveCalculationDialog> {
   final _nameController = TextEditingController();
+  final _formKey = GlobalKey<FormState>();
 
   @override
   void dispose() {
@@ -892,11 +1304,25 @@ class _SaveCalculationDialogState extends State<_SaveCalculationDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Save Calculation'),
-      content: TextField(
-        controller: _nameController,
-        decoration: const InputDecoration(
-          labelText: 'Calculation Name',
-          hintText: 'Enter a name for this calculation',
+      content: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextFormField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                labelText: 'Calculation Name',
+                hintText: 'Enter a name for this calculation',
+              ),
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return 'Please enter a name';
+                }
+                return null;
+              },
+            ),
+          ],
         ),
       ),
       actions: [
@@ -906,9 +1332,9 @@ class _SaveCalculationDialogState extends State<_SaveCalculationDialog> {
         ),
         ElevatedButton(
           onPressed: () {
-            if (_nameController.text.isNotEmpty) {
+            if (_formKey.currentState!.validate()) {
               Navigator.of(context).pop({
-                'name': _nameController.text,
+                'name': _nameController.text.trim(),
               });
             }
           },
